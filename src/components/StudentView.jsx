@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { QrReader } from 'react-qr-reader'
+import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { locationService } from '../services/locationService'
@@ -15,28 +14,69 @@ function StudentView() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
   const [showTroubleshooting, setShowTroubleshooting] = useState(false)
+  const videoRef = useRef(null)
+  const qrScannerRef = useRef(null)
 
-  const handleScan = async (result) => {
-    if (result && !isProcessing) {
-      try {
-        const sessionData = JSON.parse(result.text)
+  const startScanning = async () => {
+    try {
+      const QrScanner = (await import('qr-scanner')).default
+      
+      if (!videoRef.current) return
+      
+      qrScannerRef.current = new QrScanner(
+        videoRef.current,
+        (result) => {
+          if (result && !isProcessing) {
+            try {
+              const sessionData = JSON.parse(result.data)
         setScannedData(sessionData)
         setIsScanning(false)
         setError('')
-        
-        // Automatically process attendance
-        await processAttendance(sessionData)
+              
+              // Stop scanning
+              if (qrScannerRef.current) {
+                qrScannerRef.current.stop()
+              }
+              
+              // Automatically process attendance
+              processAttendance(sessionData)
       } catch (err) {
         setError('Invalid QR code format. Please scan a valid session QR code.')
-        setIsScanning(false)
-      }
+              setIsScanning(false)
+            }
+          }
+        },
+        {
+          highlightScanRegion: true,
+          highlightCodeOutline: true,
+        }
+      )
+      
+      await qrScannerRef.current.start()
+      setIsScanning(true)
+      setError('')
+    } catch (err) {
+      console.error('QR Scanner Error:', err)
+      setError('Camera access denied or QR scanner error. Please allow camera access.')
+      setIsScanning(false)
     }
   }
 
-  const handleError = (err) => {
-    console.error('QR Scanner Error:', err)
-    setError('Camera access denied or QR scanner error. Please allow camera access.')
+  const stopScanning = () => {
+    if (qrScannerRef.current) {
+      qrScannerRef.current.stop()
+      qrScannerRef.current = null
+    }
+    setIsScanning(false)
   }
+
+  useEffect(() => {
+    return () => {
+      if (qrScannerRef.current) {
+        qrScannerRef.current.stop()
+      }
+    }
+  }, [])
 
   const processAttendance = async (sessionData) => {
     setIsProcessing(true)
@@ -191,39 +231,35 @@ function StudentView() {
       </div>
 
       {/* QR Scanner Section */}
-      <div className="scanner-section">
-        <h3>📱 Scan QR Code</h3>
+        <div className="scanner-section">
+          <h3>📱 Scan QR Code</h3>
         <p>Scan the QR code provided by your lecturer to automatically mark attendance.</p>
-        
-        <div className="scanner-container">
-          {isScanning ? (
-            <div className="qr-scanner">
-              <QrReader
-                onResult={handleScan}
-                onError={handleError}
-                style={{ width: '100%', maxWidth: '400px' }}
-                constraints={{
-                  facingMode: 'environment'
-                }}
-              />
-              <button 
-                className="stop-scan-btn"
-                onClick={() => setIsScanning(false)}
+          
+          <div className="scanner-container">
+            {isScanning ? (
+              <div className="qr-scanner">
+              <video 
+                ref={videoRef}
+                style={{ width: '100%', maxWidth: '400px', borderRadius: '10px' }}
+                />
+                <button 
+                  className="stop-scan-btn"
+                onClick={stopScanning}
                 disabled={isProcessing}
-              >
-                Stop Scanning
-              </button>
-            </div>
-          ) : (
-            <button 
-              className="start-scan-btn"
-              onClick={() => setIsScanning(true)}
+                >
+                  Stop Scanning
+                </button>
+              </div>
+            ) : (
+              <button 
+                className="start-scan-btn"
+              onClick={startScanning}
               disabled={isProcessing || !studentId.trim()}
-            >
-              📷 Start Camera Scanner
-            </button>
-          )}
-        </div>
+              >
+                📷 Start Camera Scanner
+              </button>
+            )}
+          </div>
 
         {!studentId.trim() && (
           <p className="warning-text">⚠️ Please enter your Student ID before scanning.</p>
@@ -253,17 +289,17 @@ function StudentView() {
               <div className="session-info">
                 <p><strong>Course:</strong> {scannedData.course}</p>
                 <p><strong>Time:</strong> {new Date(scannedData.timestamp).toLocaleString()}</p>
-              </div>
-            )}
-          </div>
-          
+                </div>
+              )}
+            </div>
+
           <div className="result-actions">
-            <button 
-              onClick={resetScanner}
+              <button
+                onClick={resetScanner}
               className="scan-again-btn"
-            >
+              >
               🔄 Scan Another QR Code
-            </button>
+              </button>
           </div>
         </div>
       )}

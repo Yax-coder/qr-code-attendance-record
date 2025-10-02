@@ -13,15 +13,40 @@ function StudentView() {
   const [attendanceResult, setAttendanceResult] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
-  const [showTroubleshooting, setShowTroubleshooting] = useState(false)
-  const videoRef = useRef(null)
-  const qrScannerRef = useRef(null)
+  const [manualQRInput, setManualQRInput] = useState('')
+  const [showManualInput, setShowManualInput] = useState(false)
 
   const startScanning = async () => {
     try {
+      // Check if we're on HTTPS (required for camera access)
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+        setError('Camera access requires HTTPS. Please use a secure connection.')
+        return
+      }
+
+      // Check if camera is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('Camera not supported on this device. Please use a modern browser.')
+        return
+      }
+
       const QrScanner = (await import('qr-scanner')).default
       
       if (!videoRef.current) return
+      
+      // Check camera permissions first
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true })
+      } catch (permissionError) {
+        if (permissionError.name === 'NotAllowedError') {
+          setError('Camera permission denied. Please allow camera access and try again.')
+        } else if (permissionError.name === 'NotFoundError') {
+          setError('No camera found on this device.')
+        } else {
+          setError('Camera access failed. Please check your camera settings.')
+        }
+        return
+      }
       
       qrScannerRef.current = new QrScanner(
         videoRef.current,
@@ -29,9 +54,9 @@ function StudentView() {
           if (result && !isProcessing) {
             try {
               const sessionData = JSON.parse(result.data)
-        setScannedData(sessionData)
-        setIsScanning(false)
-        setError('')
+              setScannedData(sessionData)
+              setIsScanning(false)
+              setError('')
               
               // Stop scanning
               if (qrScannerRef.current) {
@@ -40,8 +65,8 @@ function StudentView() {
               
               // Automatically process attendance
               processAttendance(sessionData)
-      } catch (err) {
-        setError('Invalid QR code format. Please scan a valid session QR code.')
+            } catch (err) {
+              setError('Invalid QR code format. Please scan a valid session QR code.')
               setIsScanning(false)
             }
           }
@@ -49,6 +74,8 @@ function StudentView() {
         {
           highlightScanRegion: true,
           highlightCodeOutline: true,
+          preferredCamera: 'environment', // Use back camera on mobile
+          maxScansPerSecond: 5,
         }
       )
       
@@ -57,7 +84,19 @@ function StudentView() {
       setError('')
     } catch (err) {
       console.error('QR Scanner Error:', err)
-      setError('Camera access denied or QR scanner error. Please allow camera access.')
+      
+      // More specific error messages for mobile
+      if (err.name === 'NotAllowedError') {
+        setError('Camera permission denied. Please allow camera access in your browser settings.')
+      } else if (err.name === 'NotFoundError') {
+        setError('No camera found. Please check if your device has a camera.')
+      } else if (err.name === 'NotSupportedError') {
+        setError('Camera not supported. Please use a modern browser like Chrome or Safari.')
+      } else if (err.message.includes('HTTPS')) {
+        setError('Camera access requires HTTPS. Please use a secure connection.')
+      } else {
+        setError('Camera access failed. Please try refreshing the page and allowing camera access.')
+      }
       setIsScanning(false)
     }
   }
@@ -202,6 +241,22 @@ function StudentView() {
     return { valid: true }
   }
 
+  const handleManualQRSubmit = async () => {
+    if (!manualQRInput.trim()) {
+      setError('Please enter the QR code data.')
+      return
+    }
+
+    try {
+      const sessionData = JSON.parse(manualQRInput)
+      await processAttendance(sessionData)
+      setManualQRInput('')
+      setShowManualInput(false)
+    } catch (err) {
+      setError('Invalid QR code data. Please check the code and try again.')
+    }
+  }
+
   const resetScanner = () => {
     setScannedData(null)
     setStudentId('')
@@ -209,6 +264,8 @@ function StudentView() {
     setError('')
     setIsScanning(false)
     setIsProcessing(false)
+    setManualQRInput('')
+    setShowManualInput(false)
   }
 
   return (
@@ -264,6 +321,48 @@ function StudentView() {
         {!studentId.trim() && (
           <p className="warning-text">⚠️ Please enter your Student ID before scanning.</p>
         )}
+
+        {/* Mobile Camera Help */}
+        <div className="mobile-help">
+          <h4>📱 Mobile Camera Tips:</h4>
+          <ul>
+            <li>Make sure you're using <strong>Chrome</strong> or <strong>Safari</strong></li>
+            <li>Allow camera access when prompted</li>
+            <li>Ensure you're on a <strong>secure connection</strong> (HTTPS)</li>
+            <li>Try refreshing the page if camera doesn't open</li>
+            <li>Make sure your device has a working camera</li>
+          </ul>
+          
+          <div className="manual-input-section">
+            <button 
+              onClick={() => setShowManualInput(!showManualInput)}
+              className="manual-input-btn"
+            >
+              {showManualInput ? '📷 Use Camera Instead' : '⌨️ Manual QR Code Input'}
+            </button>
+            
+            {showManualInput && (
+              <div className="manual-input-form">
+                <label htmlFor="manualQR">Enter QR Code Data:</label>
+                <textarea
+                  id="manualQR"
+                  value={manualQRInput}
+                  onChange={(e) => setManualQRInput(e.target.value)}
+                  placeholder="Paste the QR code data here..."
+                  rows="4"
+                  disabled={isProcessing}
+                />
+                <button 
+                  onClick={handleManualQRSubmit}
+                  disabled={isProcessing || !manualQRInput.trim()}
+                  className="submit-manual-btn"
+                >
+                  Submit QR Code Data
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Processing Status */}

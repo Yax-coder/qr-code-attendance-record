@@ -32,13 +32,18 @@ function Login() {
       return
     }
 
-    const result = await login(formData.email, formData.password, formData.role)
-    
-    if (result.success) {
-      // Login successful, user state will be updated by context
-      console.log('Login successful:', result.user)
-    } else {
-      setError(result.error || 'Login failed. Please try again.')
+    try {
+      const result = await login(formData.email, formData.password, formData.role)
+      
+      if (result.success) {
+        // Login successful, user state will be updated by context
+        console.log('Login successful:', result.user)
+      } else {
+        setError(result.error || 'Login failed. Please try again.')
+      }
+    } catch (error) {
+      console.error('Login submission error:', error)
+      setError('An unexpected error occurred. Please try again.')
     }
     
     setIsLoading(false)

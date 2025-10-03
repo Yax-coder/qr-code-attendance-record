@@ -17,16 +17,30 @@ export const AuthProvider = ({ children }) => {
 
   // Check for existing session on app load
   useEffect(() => {
-    const savedUser = localStorage.getItem('attendance_user')
-    if (savedUser) {
+    const checkSavedUser = () => {
       try {
-        setUser(JSON.parse(savedUser))
+        const savedUser = localStorage.getItem('attendance_user')
+        if (savedUser) {
+          const userData = JSON.parse(savedUser)
+          // Validate user data structure
+          if (userData && userData.id && userData.email && userData.role) {
+            setUser(userData)
+          } else {
+            // Invalid user data, remove it
+            localStorage.removeItem('attendance_user')
+          }
+        }
       } catch (error) {
         console.error('Error parsing saved user:', error)
         localStorage.removeItem('attendance_user')
+      } finally {
+        setLoading(false)
       }
     }
-    setLoading(false)
+
+    // Add small delay for mobile compatibility
+    const timer = setTimeout(checkSavedUser, 100)
+    return () => clearTimeout(timer)
   }, [])
 
   const login = async (email, password, role) => {
@@ -51,12 +65,28 @@ export const AuthProvider = ({ children }) => {
         loginTime: new Date().toISOString()
       }
 
+      // Save to localStorage with error handling for mobile
+      try {
+        localStorage.setItem('attendance_user', JSON.stringify(userData))
+      } catch (storageError) {
+        console.warn('Could not save user to localStorage:', storageError)
+        // Continue without saving - user can still use the app
+      }
+
       setUser(userData)
-      localStorage.setItem('attendance_user', JSON.stringify(userData))
       return { success: true, user: userData }
     } catch (error) {
       console.error('Login error:', error)
-      return { success: false, error: error.message }
+      
+      // More specific error messages for mobile
+      let errorMessage = error.message
+      if (error.message.includes('Failed to fetch')) {
+        errorMessage = 'Unable to connect to server. Please check your internet connection.'
+      } else if (error.message.includes('NetworkError')) {
+        errorMessage = 'Network error. Please try again.'
+      }
+      
+      return { success: false, error: errorMessage }
     }
   }
 
